@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "jsEngine": "jsc",
+    "name": "Seamless Chat",
+    "slug": "chat-app-frontend",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "plugins": [
+      "expo-av"
+    ],
+    "android": {
+      
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "com.anonymous.chatappfrontend"
+    },
+    "ios": {
+      "newArchEnabled": false,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Allow access to microphone for voice calls.",
+        "NSCameraUsageDescription": "Allow access to camera for video calls.",
+        "NSBluetoothAlwaysUsageDescription": "Allow Bluetooth for audio routing."
+      },
+      "supportsTablet": true
+    },
+    "web": {
+      "favicon": "./assets/logos.png"
+    }
+  }
+}
