@@ -13,9 +13,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';  // For input icons
 import { useSafeAreaInsets } from 'react-native-safe-area-context';  // For insets (provider in App.tsx)
-import { useNavigation } from '@react-navigation/native';  // For navigation
+import { useNavigation } from '@react-navigation/native';  // For navigation (still needed for Login)
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { AxiosError } from 'axios';
+
+// New: Import Auth Context
+import { useAuth } from '../contexts/AuthContext';  // Adjust path (e.g., '../../contexts/AuthContext')
 
 const API_BASE = 'http://192.168.29.93:5000/api';
 
@@ -41,6 +44,9 @@ export default function RegisterScreen() {
   const [confirmPasswordError, setConfirmPasswordError] = useState<string>('');
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();  // Use insets from root provider
+
+  // New: Access auth context
+  const { validateAuth } = useAuth();
 
   const validateUsername = (username: string): boolean => {
     if (!username) {
@@ -107,10 +113,19 @@ export default function RegisterScreen() {
       });
       await AsyncStorage.setItem('token', response.data.token);
       await AsyncStorage.setItem('user', JSON.stringify(response.data.user));
+      console.log('Registration successful - token and user saved, triggering validation');  // Debug log
+
+      // New: Trigger global auth validation instead of direct navigation
+      // This updates isAuthenticated = true → Switches to MainTabs automatically
+      await validateAuth();
+
       Alert.alert('Success', 'Account created! Logging in...');
-      navigation.replace('MainTabs');  // Navigate to tabs on success
+      console.log('Registration validation complete - should switch to MainTabs');
     } catch (err) {
       const error = err as AxiosError;
+      console.error('Registration error:', error.response?.data || error.message);  // Debug log
+      // Clear any partial storage on failure
+      await AsyncStorage.multiRemove(['token', 'user']);
       Alert.alert('Registration Failed', error.response?.data?.error || 'Registration failed');
     } finally {
       setLoading(false);
@@ -150,6 +165,7 @@ export default function RegisterScreen() {
             placeholder="Username"
             autoCapitalize="none"
             onBlur={() => validateUsername(username)}
+            editable={!loading}  // Disable during loading
           />
         </View>
         {usernameError ? <Text style={styles.errorText}>{usernameError}</Text> : null}
@@ -168,6 +184,7 @@ export default function RegisterScreen() {
             keyboardType="email-address"
             autoCapitalize="none"
             onBlur={() => validateEmail(email)}
+            editable={!loading}  // Disable during loading
           />
         </View>
         {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
@@ -186,6 +203,7 @@ export default function RegisterScreen() {
             placeholder="Password"
             secureTextEntry={true}
             onBlur={() => validatePassword(password)}
+            editable={!loading}  // Disable during loading
           />
         </View>
         {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
@@ -203,6 +221,7 @@ export default function RegisterScreen() {
             placeholder="Confirm Password"
             secureTextEntry={true}
             onBlur={() => validateConfirmPassword(confirmPassword)}
+            editable={!loading}  // Disable during loading
           />
         </View>
         {confirmPasswordError ? <Text style={styles.errorText}>{confirmPasswordError}</Text> : null}
@@ -225,6 +244,7 @@ export default function RegisterScreen() {
         <TouchableOpacity 
           style={styles.linkContainer}
           onPress={() => navigation.navigate('Login')}
+          disabled={loading}  // Disable during loading
         >
           <Text style={styles.linkText}>Already have an account? Login</Text>
         </TouchableOpacity>

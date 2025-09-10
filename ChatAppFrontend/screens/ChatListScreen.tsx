@@ -8,6 +8,7 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';  // New: For user icons (person-circle)
 import { useSafeAreaInsets } from 'react-native-safe-area-context';  // From previous (for padding)
@@ -24,6 +25,9 @@ interface User {
   id?: string;
   username: string;
   email: string;
+  bio?: string;  // Optional: Bio if available
+  insta_username?: string;  // Optional: Insta if available
+  avatar_url?: string;  // New: For profile pic
 }
 
 export default function ChatListScreen({ navigation }: { navigation: any }) {
@@ -150,24 +154,46 @@ export default function ChatListScreen({ navigation }: { navigation: any }) {
     const userId = item.id || item._id;
     const isOnline = onlineUsers.has(userId);
     const userIdShort = userId.substring(0, 8) + '...';
+    const fullAvatarUrl = item.avatar_url ? `${API_BASE.replace('/api', '')}${item.avatar_url}` : null;  // New: Full URL for avatar
+
+    // New: Render avatar or default icon
+    const renderAvatar = (): JSX.Element => {
+      if (fullAvatarUrl) {
+        return (
+          <View style={styles.iconContainer}>
+            <Image 
+              source={{ uri: fullAvatarUrl }} 
+              style={styles.avatarIcon}
+              onError={(e) => console.log('ChatList avatar load error for', item.username, ':', e.nativeEvent.error)}
+            />
+            {isOnline && <View style={styles.onlineDot} />}
+          </View>
+        );
+      }
+      return (
+        <View style={styles.iconContainer}>
+          <Ionicons 
+            name="person-circle" 
+            size={50} 
+            color={isOnline ? '#007AFF' : '#ccc'}  // Green for online, gray for offline
+          />
+          {/* Optional: Small online dot (green circle below icon) */}
+          {isOnline && (
+            <View style={styles.onlineDot} />
+          )}
+        </View>
+      );
+    };
+
     return (
       <TouchableOpacity onPress={() => startChat(item)} style={styles.userItem} activeOpacity={0.7}>
         <View style={styles.userContent}>
-          {/* New: User icon on left */}
-          <View style={styles.iconContainer}>
-            <Ionicons 
-              name="person-circle" 
-              size={50} 
-              color={isOnline ? '#007AFF' : '#ccc'}  // Green for online, gray for offline
-            />
-            {/* Optional: Small online dot (green circle below icon) */}
-            {isOnline && (
-              <View style={styles.onlineDot} />
-            )}
-          </View>
+          {/* Updated: Use renderAvatar for pic or icon */}
+          {renderAvatar()}
           {/* Text content on right */}
           <View style={styles.textContent}>
             <Text style={styles.username}>{item.username}</Text>
+            {item.bio && <Text style={styles.bioText}>{item.bio}</Text>}  {/* Optional: Show bio if available */}
             {isOnline && <Text style={styles.onlineBadge}>Online</Text>}
             <Text style={styles.idText}>{"(ID: " + userIdShort + ")"}</Text>
           </View>
@@ -302,6 +328,12 @@ const styles = StyleSheet.create({
     marginRight: 15,  // Space between icon and text
     position: 'relative',  // For online dot positioning
   },
+  // New: Avatar image style (round, same size as icon)
+  avatarIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,  // Round like icon
+  },
   // New: Text content wrapper (right side)
   textContent: {
     flex: 1,  // Take remaining space
@@ -312,6 +344,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 2,  // Small space before badge/ID
+  },
+  // New: Optional bio text style
+  bioText: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 2,
   },
   onlineBadge: {
     fontSize: 12,

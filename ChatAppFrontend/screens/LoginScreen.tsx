@@ -13,9 +13,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';  // For input icons
 import { useSafeAreaInsets } from 'react-native-safe-area-context';  // For insets (provider in App.tsx)
-import { useNavigation } from '@react-navigation/native';  // For navigation
+import { useNavigation } from '@react-navigation/native';  // For navigation (still needed for Register)
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { AxiosError } from 'axios';
+
+// New: Import Auth Context
+import { useAuth } from '../contexts/AuthContext';  // Adjust path (e.g., '../../contexts/AuthContext')
 
 const API_BASE = 'http://192.168.29.93:5000/api';
 
@@ -37,6 +40,9 @@ export default function LoginScreen() {
   const [passwordError, setPasswordError] = useState<string>('');
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();  // Use insets from root provider
+
+  // New: Access auth context
+  const { validateAuth } = useAuth();
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -76,10 +82,20 @@ export default function LoginScreen() {
       });
       await AsyncStorage.setItem('token', response.data.token);
       await AsyncStorage.setItem('user', JSON.stringify(response.data.user));
-      navigation.replace('MainTabs');  // Navigate to tabs on success
+      console.log('Login successful - token and user saved, triggering validation');  // Debug log
+
+      // New: Trigger global auth validation instead of direct navigation
+      // This updates isAuthenticated = true → Switches to MainTabs automatically
+      await validateAuth();
+
+      // Optional: If validation succeeds, you could add a success alert, but no nav needed
+      console.log('Login validation complete - should switch to MainTabs');
     } catch (err) {
       const error = err as AxiosError;
-      Alert.alert('Login Failed', error.response?.data?.error || 'Invalid credentials');
+      console.error('Login error:', error.response?.data || error.message);  // Debug log
+      // Clear any partial storage on failure
+      await AsyncStorage.multiRemove(['token', 'user']);
+      Alert.alert('Login Failed', error.response?.data?.error || 'Invalid credentials or network issue');
     } finally {
       setLoading(false);
     }
@@ -119,6 +135,7 @@ export default function LoginScreen() {
             keyboardType="email-address"
             autoCapitalize="none"
             onBlur={() => validateEmail(email)}
+            editable={!loading}  // Disable during loading
           />
         </View>
         {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
@@ -136,6 +153,7 @@ export default function LoginScreen() {
             placeholder="Password"
             secureTextEntry={true}
             onBlur={() => validatePassword(password)}
+            editable={!loading}  // Disable during loading
           />
         </View>
         {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
@@ -158,6 +176,7 @@ export default function LoginScreen() {
         <TouchableOpacity 
           style={styles.linkContainer}
           onPress={() => navigation.navigate('Register')}
+          disabled={loading}  // Disable during loading
         >
           <Text style={styles.linkText}>Don't have an account? Register</Text>
         </TouchableOpacity>

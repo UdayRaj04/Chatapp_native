@@ -20,13 +20,31 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
-      "package": "com.anonymous.chatappfrontend"
+      "package": "com.anonymous.chatappfrontend",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "BLUETOOTH_CONNECT"
+      ]
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app uses the camera for video calls to connect with friends.",
+        "NSMicrophoneUsageDescription": "This app uses the microphone for audio and video calls to communicate."
+      }
     },
     "web": {
       "favicon": "./assets/logos.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "b82c3aa8-83c8-4616-b745-a8cc5bdef6d7"
+      }
+    },
+    "plugins": [
+      "expo-camera"  // Fixed: Simple string (no config object - permissions are in infoPlist/android.permissions)
+    ]
   }
 }

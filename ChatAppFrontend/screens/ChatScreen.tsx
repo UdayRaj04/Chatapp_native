@@ -11,9 +11,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  Image,  // Added for avatar
+  TouchableOpacity,  // Added for clickable header
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';  // For partner icon (person-circle)
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';  // Added: For navigation to profile
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import io, { Socket } from 'socket.io-client';
 import axios, { AxiosError } from 'axios';
@@ -42,6 +45,7 @@ interface User {
   _id?: string;
   username: string;
   email: string;
+  avatar_url?: string;  // New: For profile pic
 }
 
 interface RouteParams {
@@ -60,6 +64,7 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
   const [isPartnerOnline, setIsPartnerOnline] = useState<boolean>(false);  // Track partner's online status
+  const [otherUser, setOtherUser] = useState<User>({ username: otherUserName, id: paramOtherUserId });  // New: Full other user with avatar_url
   const flatListRef = useRef<FlatList>(null);
   const socketRetries = useRef<number>(0);
   const maxRetries = 3;
@@ -68,6 +73,9 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
   // Safe area for keyboard offset
   const insets = useSafeAreaInsets();
   const keyboardVerticalOffset = insets.bottom - 55;
+
+  // Added: Navigation hook
+  const navigation = useNavigation<any>();
 
   // Validate and set otherUserId on mount
   useEffect(() => {
@@ -80,8 +88,38 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
       return;
     }
     setOtherUserId(paramOtherUserId);
+    setOtherUser({ id: paramOtherUserId, username: otherUserName });  // Initial otherUser
     console.log('OtherUserId validated and set:', paramOtherUserId);
   }, [paramOtherUserId]);
+
+  // New: Fetch other user's profile for avatar_url
+  useEffect(() => {
+    const fetchOtherUser = async (): Promise<void> => {
+      if (!otherUserId) return;
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (!token) {
+          console.warn('No token for fetching other user');
+          return;
+        }
+        console.log('Fetching other user profile for ID:', otherUserId);
+        const response = await axios.get<User>(`${API_BASE}/users/${otherUserId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setOtherUser({
+          id: response.data.id || response.data._id,
+          username: response.data.username,
+          avatar_url: response.data.avatar_url || '',  // Set avatar_url
+        });
+        console.log('Fetched other user for chat:', response.data);  // Debug: Includes avatar_url
+      } catch (err) {
+        console.error('Fetch other user error:', err);
+        // Fallback to initial params - no avatar
+        setOtherUser({ id: otherUserId, username: otherUserName });
+      }
+    };
+    fetchOtherUser();
+  }, [otherUserId]);
 
   // Generate shared E2E key and IV (unchanged)
   const getSharedKeyAndIV = (user1Id: string, user2Id: string): { key: CryptoJS.lib.WordArray; iv: CryptoJS.lib.WordArray } => {
@@ -167,6 +205,28 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
       console.error('Decryption error:', err);
       return '[Decryption Failed - Possible Key Mismatch]';
     }
+  };
+
+  // New: Handle call initiation
+  const initiateCall = (type: 'video' | 'audio') => {
+    if (!isPartnerOnline) {
+      Alert.alert('Call Unavailable', 'Partner is offline');
+      return;
+    }
+    console.log(`Initiating ${type} call to ${otherUser.username}`);
+    // Emit to backend for notification
+    socket?.emit('initiateCall', {
+      from: currentUserId,
+      to: otherUserId,
+      type,
+    });
+    // Navigate to CallScreen
+    navigation.navigate('CallScreen', {
+      otherUserId,
+      otherUserName: otherUser.username,
+      callType: type,
+      isIncoming: false,
+    });
   };
 
   // Load user (unchanged)
@@ -468,6 +528,51 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
     }
   }, [messages]);
 
+  // New: Handle header tap - Navigate to user profile
+  const openUserProfile = (): void => {
+    if (!otherUserId || !otherUser.username) {
+      Alert.alert('Error', 'Cannot load profile - invalid user data');
+      return;
+    }
+    console.log('Opening profile for user:', otherUser.username);
+    navigation.navigate('UserProfile', {
+      otherUserId,
+      otherUserName: otherUser.username,
+      isPartnerOnline,
+    });
+  };
+
+  // New: Render header avatar (pic or icon with online dot)
+  const renderHeaderAvatar = (): JSX.Element => {
+    const fullAvatarUrl = otherUser.avatar_url ? `${API_BASE.replace('/api', '')}${otherUser.avatar_url}` : null;
+
+    if (fullAvatarUrl) {
+      return (
+        <View style={styles.headerIconContainer}>
+          <Image 
+            source={{ uri: fullAvatarUrl }} 
+            style={styles.headerAvatarIcon}
+            onError={(e) => console.log('Chat header avatar load error for', otherUser.username, ':', e.nativeEvent.error)}
+          />
+          {isPartnerOnline && <View style={styles.onlineDot} />}
+        </View>
+      );
+    }
+    return (
+      <View style={styles.headerIconContainer}>
+        <Ionicons 
+          name="person-circle" 
+          size={40}  // Slightly smaller for header
+          color={isPartnerOnline ? '#007AFF' : '#ccc'}  // Green for online, gray for offline
+        />
+        {/* Optional: Small online dot */}
+        {isPartnerOnline && (
+          <View style={styles.onlineDot} />
+        )}
+      </View>
+    );
+  };
+
   // Enhanced loading with error (unchanged)
   if (isLoading || !currentUserId || !otherUserId || !socketReady) {
     return (
@@ -482,7 +587,39 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
     );
   }
 
+  // Moved up: Compute shortId after loading check (now available)
   const shortId = otherUserId.substring(0, 8) + '...';
+
+  // New: Render clickable header (wraps entire header in TouchableOpacity) - Fixed with avatar
+  const renderHeader = (): JSX.Element => (
+    <TouchableOpacity onPress={openUserProfile} activeOpacity={0.7} style={styles.headerTouchable}>
+      {/* Partner avatar/icon on left */}
+      {renderHeaderAvatar()}
+      {/* Title text (center/right-ish) */}
+      <View style={styles.headerText}>
+        <Text style={styles.header}>Chat with {otherUser.username || 'User'}</Text>
+        <Text style={styles.headerId}>ID: {shortId}</Text>
+        {isPartnerOnline && <Text style={styles.headerOnline}>Online</Text>}
+      </View>
+      {/* New: Call Icons (right side) */}
+      <View style={styles.callIcons}>
+        <TouchableOpacity 
+          onPress={() => initiateCall('audio')} 
+          style={[styles.callButton, { opacity: isPartnerOnline ? 1 : 0.5 }]}
+          disabled={!isPartnerOnline}
+        >
+          <Ionicons name="call" size={24} color={isPartnerOnline ? '#007AFF' : '#ccc'} />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          onPress={() => initiateCall('video')} 
+          style={[styles.callButton, { opacity: isPartnerOnline ? 1 : 0.5 }]}
+          disabled={!isPartnerOnline}
+        >
+          <Ionicons name="videocam" size={24} color={isPartnerOnline ? '#007AFF' : '#ccc'} />
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
 
   return (
     <KeyboardAvoidingView 
@@ -491,27 +628,9 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
       enabled={true}
       keyboardVerticalOffset={keyboardVerticalOffset}
     >
-      {/* Enhanced Header: Icon + Title */}
-      <View style={styles.headerContainer}>
-        {/* Partner icon on left */}
-        <View style={styles.headerIconContainer}>
-          <Ionicons 
-            name="person-circle" 
-            size={40}  // Slightly smaller for header
-            color={isPartnerOnline ? '#007AFF' : '#ccc'}  // Green for online, gray for offline
-          />
-          {/* Optional: Small online dot */}
-          {isPartnerOnline && (
-            <View style={styles.onlineDot} />
-          )}
-        </View>
-        {/* Title text on right */}
-        <View style={styles.headerText}>
-          <Text style={styles.header}>Chat with {otherUserName || 'User'}</Text>
-          <Text style={styles.headerId}>ID: {shortId}</Text>
-          {isPartnerOnline && <Text style={styles.headerOnline}>Online</Text>}
-        </View>
-      </View>
+      {/* Updated: Clickable Header */}
+      {renderHeader()}
+      
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -577,13 +696,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f0f0f0',
   },
-  // Enhanced: Header with row layout for icon + text
-  headerContainer: {
-    flexDirection: 'row',  // Row for icon + text
+  // New: Clickable header style (mirrors headerContainer for full tap area)
+  headerTouchable: {
+    flexDirection: 'row',  // Row for icon + text + calls
     alignItems: 'center', 
     paddingTop: 30, // Vertical center
     paddingBottom: 10,
     paddingLeft:20,
+    paddingRight: 20,  // Added: Padding for right-side icons
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#ddd',
@@ -598,11 +718,18 @@ const styles = StyleSheet.create({
     marginRight: 12,  // Space between icon and text
     position: 'relative',  // For online dot
   },
-  // Header text wrapper (right side)
+  // New: Header avatar image style (round, same size as icon)
+  headerAvatarIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,  // Round like icon
+  },
+  // Header text wrapper (center)
   headerText: {
     flex: 1,  // Take remaining space
     flexDirection: 'column',  // Stack title, ID, online
     justifyContent: 'center',
+    marginRight: 12,  // Space before call icons
   },
   header: {
     fontSize: 18,
@@ -633,6 +760,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF',
     borderWidth: 2,
     borderColor: '#fff',
+  },
+  // Call icons container (right side)
+  callIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  // Call button base style
+  callButton: {
+    marginLeft: 10,
+    padding: 5,
   },
   loadingContainer: {
     flex: 1,

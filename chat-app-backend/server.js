@@ -1,4 +1,3 @@
-
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -6,6 +5,7 @@ const dotenv = require('dotenv');
 const http = require('http');
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');  // Added: Global import to fix "jwt is not defined"
+const multer = require('multer');  // npm install multer
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -22,6 +22,9 @@ const io = socketIo(server, {
     methods: ['GET', 'POST']
   } 
 });
+
+// New: Serve uploaded files statically
+app.use('/uploads', express.static('uploads'));
 
 // Middleware
 app.use(cors());
@@ -58,7 +61,7 @@ io.use((socket, next) => {
 // Global map to track online users (userId -> socket)
 const onlineUsers = new Map();
 
-// Socket.io Connection Handler (merged: original + online status)
+// Socket.io Connection Handler (merged: original + online status + calling)
 io.on('connection', (socket) => {
   // Middleware already set socket.userId - no re-verification needed
   if (!socket.userId) {
@@ -120,6 +123,79 @@ io.on('connection', (socket) => {
     const onlineList = Array.from(onlineUsers.keys());  // Array of userIds
     socket.emit('onlineUsersList', { onlineUsers: onlineList });
     console.log(`Sent online list to ${socket.userId}:`, onlineList);
+  });
+
+  // New: Call Signaling Events (WebRTC)
+  socket.on('initiateCall', (data) => {
+    const { from, to, type } = data;  // type: 'video' or 'audio'
+    if (!from || !to || !type) {
+      console.error('Invalid initiateCall data:', data);
+      return socket.emit('error', { message: 'Invalid call data' });
+    }
+    console.log(`Call initiated from ${from} to ${to} (type: ${type})`);
+    // Emit to target user (direct emit to their socket if online)
+    const targetSocket = onlineUsers.get(to);
+    if (targetSocket) {
+      targetSocket.emit('incomingCall', {
+        from,
+        type,
+      });
+    } else {
+      // Partner offline - notify caller
+      socket.emit('callError', { message: 'Partner is offline' });
+    }
+  });
+
+  socket.on('callOffer', (data) => {
+    const { from, to, offer, type } = data;
+    if (!from || !to || !offer || !type) {
+      console.error('Invalid callOffer data:', data);
+      return socket.emit('error', { message: 'Invalid offer data' });
+    }
+    console.log('Call offer from', from, 'to', to);
+    const targetSocket = onlineUsers.get(to);
+    if (targetSocket) {
+      targetSocket.emit('callOffer', { from, offer, type });
+    }
+  });
+
+  socket.on('callAnswer', (data) => {
+    const { from, to, answer } = data;
+    if (!from || !to || !answer) {
+      console.error('Invalid callAnswer data:', data);
+      return socket.emit('error', { message: 'Invalid answer data' });
+    }
+    console.log('Call answer from', from, 'to', to);
+    const targetSocket = onlineUsers.get(from);
+    if (targetSocket) {
+      targetSocket.emit('callAnswer', { answer });
+    }
+  });
+
+  socket.on('iceCandidate', (data) => {
+    const { from, to, candidate } = data;
+    if (!from || !to || !candidate) {
+      console.error('Invalid iceCandidate data:', data);
+      return socket.emit('error', { message: 'Invalid ICE data' });
+    }
+    console.log('ICE candidate from', from, 'to', to);
+    const targetSocket = onlineUsers.get(to);
+    if (targetSocket) {
+      targetSocket.emit('iceCandidate', { candidate });
+    }
+  });
+
+  socket.on('endCall', (data) => {
+    const { from, to } = data;
+    if (!from || !to) {
+      console.error('Invalid endCall data:', data);
+      return;
+    }
+    console.log('Call ended by', from);
+    const targetSocket = onlineUsers.get(to);
+    if (targetSocket) {
+      targetSocket.emit('callEnded');
+    }
   });
 
   // Disconnect handler (existing + online status)
