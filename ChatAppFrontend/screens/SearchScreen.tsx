@@ -17,9 +17,7 @@ import { useNavigation } from '@react-navigation/native';  // For navigation to 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { AxiosError } from 'axios';
 import io, { Socket } from 'socket.io-client';
-
-const API_BASE = 'http://192.168.29.93:5000/api';
-
+import { API_BASE, SOCKET_BASE } from '../config';  // New: Global config (adjust path if 
 const WEBSITE_URL = 'https://udayaj.web.app';  // New: Customize this URL (e.g., your portfolio)
 
 interface User {

@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';  // For cu
 import { useNavigation, useRoute } from '@react-navigation/native';
 import io, { Socket } from 'socket.io-client';
 import InCallManager from 'react-native-incall-manager';  // For call UI
+import { API_BASE, SOCKET_BASE } from '../config';  // New: Global config (adjust path if 
 
 // WebRTC: Conditional import (only mobile)
 let WebRTC: any = null;
@@ -26,8 +27,6 @@ if (Platform.OS !== 'web') {
     RTCSessionDescription: require('react-native-webrtc').RTCSessionDescription,
   };
 }
-
-const API_BASE = 'http://192.168.29.93:5000/api';
 const { width: screenWidth } = Dimensions.get('window');
 
 interface RouteParams {

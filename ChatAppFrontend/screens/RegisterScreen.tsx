@@ -19,8 +19,7 @@ import axios, { AxiosError } from 'axios';
 
 // New: Import Auth Context
 import { useAuth } from '../contexts/AuthContext';  // Adjust path (e.g., '../../contexts/AuthContext')
-
-const API_BASE = 'http://192.168.29.93:5000/api';
+import { API_BASE, SOCKET_BASE } from '../config';  // New: Global config (adjust path if 
 
 interface RegisterResponse {
   token: string;

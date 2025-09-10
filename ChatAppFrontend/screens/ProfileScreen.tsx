@@ -18,8 +18,7 @@ import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { AxiosError } from 'axios';
 import { useAuth } from '../contexts/AuthContext';  // Adjust path (e.g., 
-
-const API_BASE = 'http://192.168.29.93:5000/api';
+import { API_BASE, SOCKET_BASE } from '../config';  // New: Global config (adjust path if 
 
 interface User {
   id?: string;

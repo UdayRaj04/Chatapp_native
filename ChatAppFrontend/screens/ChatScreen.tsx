@@ -21,8 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import io, { Socket } from 'socket.io-client';
 import axios, { AxiosError } from 'axios';
 import CryptoJS from 'crypto-js';
-
-const API_BASE = 'http://192.168.29.93:5000/api';
+import { API_BASE, SOCKET_BASE } from '../config';  // New: Global config (adjust path if 
 
 interface Message {
   from: string;
