@@ -12,7 +12,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/logos.png",
@@ -25,7 +27,9 @@
         "MODIFY_AUDIO_SETTINGS",
         "BLUETOOTH_CONNECT",
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "ios": {
@@ -37,17 +41,20 @@
     },
     "web": {
       "bundler": "metro",
-      // "output": "static",
       "favicon": "./assets/logos.png"
     },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera"
+        }
+      ]
+    ],
     "extra": {
       "eas": {
-        "projectId": "b82c3aa8-83c8-4616-b745-a8cc5bdef6d7"
+        "projectId": "e5e0b640-a28f-4545-a487-359ed0bd0bd9"
       }
-    },
-    "plugins": [
-      ["expo-camera", { "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera" }],
-      // ["expo-microphone", { "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone" }]
-    ]
+    }
   }
 }

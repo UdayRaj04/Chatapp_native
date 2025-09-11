@@ -32,9 +32,9 @@ import ProfileScreen from './screens/ProfileScreen';
 import { AuthProvider, useAuth } from './contexts/AuthContext';  // Adjust path if needed
 import UserProfileScreen from './screens/UserProfileScreen';
 
-import 'react-native-get-random-values';  // Polyfill for crypto (already in your App.tsx?)
-import { polyfillWebCrypto } from 'react-native-get-random-values';  // If needed for WebRTC
-polyfillWebCrypto();
+// import 'react-native-get-random-values';  // Polyfill for crypto (already in your App.tsx?)
+// import { polyfillWebCrypto } from 'react-native-get-random-values';  // If needed for WebRTC
+// polyfillWebCrypto();
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
