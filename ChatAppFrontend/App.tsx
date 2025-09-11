@@ -1,10 +1,10 @@
-import 'react-native-get-random-values';  // Polyfill first (for CryptoJS/WebRTC secure randoms)
+import 'react-native-get-random-values';  // Polyfill first
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { LogBox, View, Text, ActivityIndicator, Platform } from 'react-native';  // Added: Platform for web checks
+import { LogBox, View, Text, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';  // New: For dynamic insets
 
 // Suppress warnings
@@ -20,6 +20,7 @@ import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import ChatListScreen from './screens/ChatListScreen';
 import ChatScreen from './screens/ChatScreen';
+import CallScreen from './screens/CallScreen';
 
 // Placeholder screens (ensure they exist)
 import SearchScreen from './screens/SearchScreen';
@@ -31,16 +32,14 @@ import ProfileScreen from './screens/ProfileScreen';
 import { AuthProvider, useAuth } from './contexts/AuthContext';  // Adjust path if needed
 import UserProfileScreen from './screens/UserProfileScreen';
 
-// New: Dynamic import for CallScreen (only on mobile)
-let CallScreen: any = null;
-if (Platform.OS !== 'web') {
-  CallScreen = require('./screens/CallScreen').default;
-}
+import 'react-native-get-random-values';  // Polyfill for crypto (already in your App.tsx?)
+import { polyfillWebCrypto } from 'react-native-get-random-values';  // If needed for WebRTC
+polyfillWebCrypto();
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
-// Main Tab Navigator (fixed: boxShadow for web compatibility)
+// Main Tab Navigator (unchanged)
 function MainTabs() {
   return (
     <Tab.Navigator
@@ -68,11 +67,13 @@ function MainTabs() {
           backgroundColor: '#f8f8f8',
           borderTopWidth: 0.5,
           borderTopColor: '#e0e0e0',
-          // Fixed: Use boxShadow for web (replaces shadow* deprecation)
-          boxShadow: Platform.OS === 'web' ? '0 -2px 4px rgba(0,0,0,0.1)' : undefined,
-          elevation: 8,  // Native shadow (mobile only)
-          height: 100,
-          paddingBottom: 50,
+          elevation: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+          // height: 100,
+          // paddingBottom: 50,
           paddingTop: 5,
           position: 'absolute',
           bottom: 0,
@@ -99,20 +100,17 @@ function MainTabs() {
   );
 }
 
-// Auth Stack (Login/Register only - no CallScreen here)
+// Auth Stack (Login/Register only)
 function AuthStack() {
   return (
     <Stack.Navigator 
       initialRouteName="Login"
       screenOptions={{
         headerShown: false,
-        cardStyle: { 
-          backgroundColor: '#f5f5f5',
-          // Fixed: boxShadow for web
-          boxShadow: Platform.OS === 'web' ? '0 2px 4px rgba(0,0,0,0.1)' : undefined,
-        },
+        cardStyle: { backgroundColor: '#f5f5f5' },
       }}
     >
+      
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
     </Stack.Navigator>
@@ -142,11 +140,7 @@ function ConditionalNavigator() {
           initialRouteName="MainTabs"
           screenOptions={{
             headerShown: false,
-            cardStyle: { 
-              backgroundColor: '#f5f5f5',
-              // Fixed: boxShadow for web (replaces shadow deprecation)
-              boxShadow: Platform.OS === 'web' ? '0 1px 3px rgba(0,0,0,0.1)' : undefined,
-            },
+            cardStyle: { backgroundColor: '#f5f5f5' },
           }}
         >
           <Stack.Screen name="MainTabs" component={MainTabs} />
@@ -160,42 +154,17 @@ function ConditionalNavigator() {
               headerTintColor: '#fff',
               presentation: 'modal',
               tabBarStyle: { display: 'none' },
-              // Fixed: boxShadow for Chat card
-              cardStyle: { 
-                backgroundColor: '#f0f0f0',
-                boxShadow: Platform.OS === 'web' ? '0 2px 8px rgba(0,0,0,0.15)' : undefined,
-              },
             }}
           />
           {/* New: User Profile Screen (push from Chat) */}
-          <Stack.Screen 
-            name="UserProfile" 
-            component={UserProfileScreen} 
-            options={{ 
-              headerShown: false,  // Custom header inside screen
-              presentation: 'card',  // Smooth push animation
-              // Fixed: boxShadow
-              cardStyle: { 
-                backgroundColor: '#f5f5f5',
-                boxShadow: Platform.OS === 'web' ? '0 2px 8px rgba(0,0,0,0.15)' : undefined,
-              },
-            }}
-          />
-          {/* Conditional: CallScreen only on mobile (in authenticated stack) */}
-          {Platform.OS !== 'web' && CallScreen && (
-            <Stack.Screen 
-              name="CallScreen" 
-              component={CallScreen} 
-              options={{ 
-                headerShown: false,
-                // Fixed: boxShadow
-                cardStyle: { 
-                  backgroundColor: '#000',  // Black for call UI
-                  boxShadow: Platform.OS === 'web' ? 'none' : undefined,
-                },
-              }}
-            />
-          )}
+  <Stack.Screen 
+    name="UserProfile" 
+    component={UserProfileScreen} 
+    options={{ 
+      headerShown: false,  // Custom header inside screen
+      presentation: 'card',  // Smooth push animation
+    }}
+  />
         </Stack.Navigator>
       ) : (
         // Not Authenticated: Auth Stack

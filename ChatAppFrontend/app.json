@@ -12,12 +12,10 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/logos.png",
         "backgroundColor": "#FFFFFF"
       },
       "package": "com.anonymous.chatappfrontend",
@@ -25,17 +23,21 @@
         "CAMERA",
         "RECORD_AUDIO",
         "MODIFY_AUDIO_SETTINGS",
-        "BLUETOOTH_CONNECT"
+        "BLUETOOTH_CONNECT",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
       ]
     },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "This app uses the camera for video calls to connect with friends.",
-        "NSMicrophoneUsageDescription": "This app uses the microphone for audio and video calls to communicate."
+        "NSCameraUsageDescription": "This app uses the camera for video calls.",
+        "NSMicrophoneUsageDescription": "This app uses the microphone for audio/video calls."
       }
     },
     "web": {
+      "bundler": "metro",
+      // "output": "static",
       "favicon": "./assets/logos.png"
     },
     "extra": {
@@ -44,7 +46,8 @@
       }
     },
     "plugins": [
-      "expo-camera"  // Fixed: Simple string (no config object - permissions are in infoPlist/android.permissions)
+      ["expo-camera", { "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera" }],
+      // ["expo-microphone", { "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone" }]
     ]
   }
 }

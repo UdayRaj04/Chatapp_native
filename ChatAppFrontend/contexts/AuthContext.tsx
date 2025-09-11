@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-
-const API_BASE = 'http://192.168.29.93:5000/api';
+import { API_BASE, SOCKET_BASE } from '../config';  // New: Global config (adjust path if 
 
 interface AuthContextType {
   isAuthenticated: boolean | null;

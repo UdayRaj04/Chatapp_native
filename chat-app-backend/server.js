@@ -125,86 +125,140 @@ io.on('connection', (socket) => {
     console.log(`Sent online list to ${socket.userId}:`, onlineList);
   });
 
-  // New: Call Signaling Events (WebRTC)
+  // Updated: Call Signaling Events (WebRTC) - Use socket.userId as 'from'
+  // initiateCall: Caller starts call, notifies callee if online
   socket.on('initiateCall', (data) => {
-    const { from, to, type } = data;  // type: 'video' or 'audio'
-    if (!from || !to || !type) {
+    const { to, type } = data;  // type: 'audio' or 'video'
+    if (!to || !type || (type !== 'audio' && type !== 'video')) {
       console.error('Invalid initiateCall data:', data);
-      return socket.emit('error', { message: 'Invalid call data' });
+      return socket.emit('callError', { message: 'Invalid call data' });
     }
+    const from = socket.userId;  // Use authenticated userId
     console.log(`Call initiated from ${from} to ${to} (type: ${type})`);
-    // Emit to target user (direct emit to their socket if online)
+    
     const targetSocket = onlineUsers.get(to);
     if (targetSocket) {
+      // Partner online - send incomingCall
       targetSocket.emit('incomingCall', {
         from,
         type,
+        roomId: `${from}_${to}`.split('_').sort().join('_'),  // Unique room for signaling
       });
+      socket.emit('callInitiated', { to, type, roomId: `${from}_${to}`.split('_').sort().join('_') });  // Confirm to caller
     } else {
       // Partner offline - notify caller
-      socket.emit('callError', { message: 'Partner is offline' });
+      socket.emit('callError', { message: 'Partner is offline - cannot initiate call' });
     }
   });
 
-  socket.on('callOffer', (data) => {
-    const { from, to, offer, type } = data;
-    if (!from || !to || !offer || !type) {
-      console.error('Invalid callOffer data:', data);
-      return socket.emit('error', { message: 'Invalid offer data' });
+  // acceptCall: Callee accepts, notifies caller
+  socket.on('acceptCall', (data) => {
+    const { roomId } = data;
+    if (!roomId) {
+      console.error('Invalid acceptCall data:', data);
+      return socket.emit('callError', { message: 'Invalid accept data' });
     }
-    console.log('Call offer from', from, 'to', to);
-    const targetSocket = onlineUsers.get(to);
-    if (targetSocket) {
-      targetSocket.emit('callOffer', { from, offer, type });
+    const from = socket.userId;  // Callee
+    console.log(`Call accepted by ${from} in room ${roomId}`);
+    
+    // Notify caller
+    const [callerId, calleeId] = roomId.split('_');
+    const callerSocket = onlineUsers.get(callerId === from ? calleeId : callerId);
+    if (callerSocket) {
+      callerSocket.emit('callAccepted', { roomId });
+    }
+    // Optional: Join room for further signaling
+    socket.join(roomId);
+  });
+
+  // rejectCall: Callee rejects, notifies caller
+  socket.on('rejectCall', (data) => {
+    const { roomId, reason = 'declined' } = data;
+    if (!roomId) {
+      console.error('Invalid rejectCall data:', data);
+      return;
+    }
+    const from = socket.userId;  // Rejector
+    console.log(`Call rejected by ${from} in room ${roomId} (reason: ${reason})`);
+    
+    // Notify caller
+    const [callerId, calleeId] = roomId.split('_');
+    const callerSocket = onlineUsers.get(callerId === from ? calleeId : callerId);
+    if (callerSocket) {
+      callerSocket.emit('callRejected', { roomId, reason });
     }
   });
 
-  socket.on('callAnswer', (data) => {
-    const { from, to, answer } = data;
-    if (!from || !to || !answer) {
-      console.error('Invalid callAnswer data:', data);
-      return socket.emit('error', { message: 'Invalid answer data' });
-    }
-    console.log('Call answer from', from, 'to', to);
-    const targetSocket = onlineUsers.get(from);
-    if (targetSocket) {
-      targetSocket.emit('callAnswer', { answer });
-    }
-  });
-
-  socket.on('iceCandidate', (data) => {
-    const { from, to, candidate } = data;
-    if (!from || !to || !candidate) {
-      console.error('Invalid iceCandidate data:', data);
-      return socket.emit('error', { message: 'Invalid ICE data' });
-    }
-    console.log('ICE candidate from', from, 'to', to);
-    const targetSocket = onlineUsers.get(to);
-    if (targetSocket) {
-      targetSocket.emit('iceCandidate', { candidate });
-    }
-  });
-
+  // endCall: End call, notify other party
   socket.on('endCall', (data) => {
-    const { from, to } = data;
-    if (!from || !to) {
+    const { roomId } = data;
+    if (!roomId) {
       console.error('Invalid endCall data:', data);
       return;
     }
-    console.log('Call ended by', from);
-    const targetSocket = onlineUsers.get(to);
-    if (targetSocket) {
-      targetSocket.emit('callEnded');
-    }
+    const from = socket.userId;
+    console.log(`Call ended by ${from} in room ${roomId}`);
+    
+    // Notify other party
+    io.to(roomId).emit('callEnded', { roomId, reason: 'ended' });
+    // Leave room
+    socket.leave(roomId);
   });
 
-  // Disconnect handler (existing + online status)
+  // WebRTC Signaling: Relay SDP offers/answers and ICE candidates via room or direct
+  socket.on('offer', (data) => {
+    const { roomId, offer } = data;
+    if (!roomId || !offer) {
+      console.error('Invalid offer data:', data);
+      return socket.emit('callError', { message: 'Invalid offer' });
+    }
+    console.log(`Offer sent in room ${roomId}`);
+    socket.to(roomId).emit('offer', { 
+      from: socket.userId, 
+      offer, 
+      roomId 
+    });
+  });
+
+  socket.on('answer', (data) => {
+    const { roomId, answer } = data;
+    if (!roomId || !answer) {
+      console.error('Invalid answer data:', data);
+      return socket.emit('callError', { message: 'Invalid answer' });
+    }
+    console.log(`Answer sent in room ${roomId}`);
+    socket.to(roomId).emit('answer', { 
+      from: socket.userId, 
+      answer, 
+      roomId 
+    });
+  });
+
+  socket.on('ice-candidate', (data) => {
+    const { roomId, candidate } = data;
+    if (!roomId || !candidate) {
+      console.error('Invalid ICE candidate data:', data);
+      return socket.emit('callError', { message: 'Invalid ICE candidate' });
+    }
+    console.log(`ICE candidate sent in room ${roomId}`);
+    socket.to(roomId).emit('ice-candidate', { 
+      from: socket.userId, 
+      candidate, 
+      roomId 
+    });
+  });
+
+  // Disconnect handler (existing + online status + call cleanup)
   socket.on('disconnect', (reason) => {
     if (socket.userId) {
       onlineUsers.delete(socket.userId);
       console.log(`User ${socket.userId} disconnected (${reason}) - Total online: ${onlineUsers.size}`);
       // Emit to all clients: This user is now offline
       io.emit('userOffline', { userId: socket.userId });
+      
+      // Cleanup any active calls involving this user
+      // Iterate through rooms if needed, but since direct, emit endCall to known peers if you track
+      // For simplicity: Assume frontend handles end on disconnect
     }
   });
 });

@@ -220,7 +220,7 @@ export default function ChatListScreen({ navigation }: { navigation: any }) {
   return (
     <View style={styles.container}>
       <View style={{ 
-       paddingLeft: 20,paddingRight:20, paddingBottom:10, paddingTop:35,  
+       paddingLeft: 20,paddingRight:20, paddingBottom:10, 
   flexDirection: 'row',       // 👈 Arrange items in a row
   alignItems: 'center',       // 👈 Vertically center icon & text
   backgroundColor: '#007AFF',
