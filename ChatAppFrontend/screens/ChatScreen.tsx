@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   TextInput,
@@ -15,6 +15,7 @@ import {
   TouchableOpacity,
   Modal,
   Dimensions,
+  PermissionsAndroid,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -67,7 +68,7 @@ interface User {
   id?: string;
   _id?: string;
   username: string;
-  email: string;
+  email?: string;  // Optional now
   avatar_url?: string;
 }
 
@@ -88,7 +89,8 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
   const [isPartnerOnline, setIsPartnerOnline] = useState<boolean>(false);
-  const [otherUser, setOtherUser] = useState<User>({ username: otherUserName, id: paramOtherUserId });
+  const [otherUser, setOtherUser] = useState<User>({ username: otherUserName, id: paramOtherUserId, email: '' });  // Add email: ''
+
   const [testMode, setTestMode] = useState<boolean>(false);  // For solo testing
 
   // Call state
@@ -99,6 +101,7 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
   const [remoteStream, setRemoteStream] = useState<any>(null);
   const [pc, setPc] = useState<any>(null);
   const [isCallActive, setIsCallActive] = useState<boolean>(false);
+  const [callState, setCallState] = useState<'idle' | 'ringing' | 'connecting' | 'active' | 'ended'>('idle'); // ringing = outgoing, active = connected
 
   const flatListRef = useRef<FlatList>(null);
   const socketRetries = useRef<number>(0);
@@ -123,7 +126,7 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
       return;
     }
     setOtherUserId(paramOtherUserId);
-    setOtherUser({ id: paramOtherUserId, username: otherUserName });
+    setOtherUser({ id: paramOtherUserId, username: otherUserName, email: '' });  // Add email: ''
     console.log('OtherUserId validated and set:', paramOtherUserId);
   }, [paramOtherUserId]);
 
@@ -144,12 +147,13 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
         setOtherUser({
           id: response.data.id || response.data._id,
           username: response.data.username,
+          email: response.data.email || '',  // Add email
           avatar_url: response.data.avatar_url || '',
         });
         console.log('Fetched other user for chat:', response.data);
       } catch (err) {
         console.error('Fetch other user error:', err);
-        setOtherUser({ id: otherUserId, username: otherUserName });
+        setOtherUser({ id: otherUserId, username: otherUserName, email: '' });  // Fallback
       }
     };
     fetchOtherUser();
@@ -186,9 +190,10 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
       });
       
       return { key, iv };
-    } catch (err) {
-      console.error('Key/IV generation error:', err);
-      throw new Error(`Key/IV generation failed: ${err.message}`);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('Key/IV generation error:', errMsg);
+      throw new Error(`Key/IV generation failed: ${errMsg}`);
     }
   };
 
@@ -211,10 +216,11 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
       const result = encrypted.toString();
       console.log('Encryption successful - result length:', result.length);
       return result;
-    } catch (err) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Unknown error';
       console.error('Encryption error details:', {
-        errMessage: err.message,
-        errStack: err.stack,
+        errMessage: errMsg,
+        errStack: err instanceof Error ? err.stack : undefined,
         contentType: typeof content,
         contentLength: content.length,
         keyType: typeof key,
@@ -222,7 +228,7 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
         ivType: typeof iv,
         ivSigBytes: iv ? iv.sigBytes : 'no iv'
       });
-      throw new Error(`Encryption failed: ${err.message}`);
+      throw new Error(`Encryption failed: ${errMsg}`);
     }
   };
 
@@ -264,10 +270,11 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
         }
         setCurrentUserId(userId);
         console.log('CurrentUserId loaded successfully:', userId);
-      } catch (err) {
-        console.error('Load user error:', err);
-        setError(`Failed to load user: ${err.message}`);
-        Alert.alert('Error', `Failed to load user data: ${err.message}. Please login again.`);
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error('Load user error:', errMsg);
+        setError(`Failed to load user: ${errMsg}`);
+        Alert.alert('Error', `Failed to load user data: ${errMsg}. Please login again.`);
       }
     };
     loadUser();
@@ -319,7 +326,7 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
           flatListRef.current?.scrollToEnd({ animated: false });
         }, 100);
       } catch (err) {
-        const error = err as AxiosError;
+        const error = err as AxiosError<{ error?: string }>;  // Type assertion
         console.error('Fetch messages error:', error.response?.data || error.message);
         setError('Failed to load messages - check backend');
         Alert.alert('Error', error.response?.data?.error || 'Failed to load messages');
@@ -434,16 +441,21 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
 
       // Call listeners
       newSocket.on('incomingCall', (data: any) => {
-        console.log('📞 Incoming call:', data);
-        setIncomingCall(data);
+        console.log(`${Platform.OS}: Incoming call from ${data.from} (${data.type}), room ${data.roomId}`);
+        if (data.to !== currentUserId) {
+          console.log(`${Platform.OS}: Incoming call not for me, ignoring`);
+          return;
+        }
+        setIncomingCall(data); // Store offer/roomId/type
         setShowCallModal(true);
         setCallType(data.type as 'audio' | 'video');
-        Alert.alert('Incoming Call', `${data.from} is calling you via ${data.type}.`);
+        Alert.alert('Incoming Call', `${data.from} is calling via ${data.type}.`);
       });
 
       newSocket.on('callAccepted', (data: any) => {
-        console.log('✅ Call accepted:', data);
+        console.log(`${Platform.OS}: Call accepted by peer:`, data);
         setIsCallActive(true);
+        setCallState('active');
       });
 
       newSocket.on('callRejected', (data: any) => {
@@ -457,26 +469,14 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
         endCall();
       });
 
-      newSocket.on('offer', async (data: any) => {
-        console.log('📋 Offer received:', data);
-        if (!pc) return;
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          newSocket.emit('answer', { roomId: data.roomId, answer });
-        } catch (err) {
-          console.error('Offer handling error:', err);
-        }
-      });
-
       newSocket.on('answer', async (data: any) => {
-        console.log('📋 Answer received:', data);
+        console.log(`${Platform.OS}: Answer received from ${data.from} for room ${data.roomId} (type: ${data.answer?.type})`);
         if (!pc) return;
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-        } catch (err) {
-          console.error('Answer handling error:', err);
+          console.log(`${Platform.OS}: Remote description set - wait for ontrack`);
+        } catch (err: any) {
+          console.error(`${Platform.OS}: Answer handling error:`, err);
         }
       });
 
@@ -488,6 +488,13 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
         } catch (err) {
           console.error('ICE candidate error:', err);
         }
+      });
+
+      newSocket.on('callError', (data: any) => {
+        console.log(`${Platform.OS}: Call error:`, data.message);
+        Alert.alert('Call Failed', data.message);
+        setShowCallModal(false);
+        endCall();
       });
 
       setSocket(newSocket);
@@ -532,141 +539,264 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
   // Get local stream for call
   const getLocalStream = async (type: 'audio' | 'video'): Promise<MediaStream | null> => {
     try {
-      if (!mediaDevices) {
-        throw new Error('Media devices not available');
+      console.log(`getLocalStream called on ${Platform.OS} for ${type} call`);
+      if (Platform.OS === 'android') {
+        const perms = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
+        if (type === 'video') perms.push(PermissionsAndroid.PERMISSIONS.CAMERA);
+        const results = await PermissionsAndroid.requestMultiple(perms);
+        console.log('Android permissions:', results);
+        if (type === 'video' && results[PermissionsAndroid.PERMISSIONS.CAMERA] !== 'granted') {
+          Alert.alert('Denied', 'Camera required for video');
+          return null;
+        }
+        if (results[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] !== 'granted') {
+          Alert.alert('Denied', 'Mic required for calls');
+          return null;
+        }
+      } else if (Platform.OS === 'web') {
+        console.log('Web: Requesting getUserMedia (needs HTTPS)');
       }
+      
+      if (!mediaDevices) {
+        console.error('mediaDevices unavailable on', Platform.OS);
+        Alert.alert('Error', 'WebRTC not available - use mobile for calls');
+        return null;
+      }
+      
       const stream = await mediaDevices.getUserMedia({
         audio: true,
         video: type === 'video' ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } : false,
       });
-      console.log(`Local stream acquired (${type}): ${stream.getTracks().length} tracks`);
+      
+      stream.getTracks().forEach((track: MediaStreamTrack) => {
+        track.enabled = true;
+        console.log(`${Platform.OS} local ${track.kind} track enabled: ${track.readyState}`);
+      });
+      
+      console.log(`${Platform.OS} stream acquired: ${stream.getTracks().length} tracks`);
       return stream;
     } catch (err: any) {
-      console.error('getLocalStream error:', err);
-      Alert.alert('Permission Error', err.name === 'NotAllowedError' ? 'Camera/mic denied. Enable in settings.' : err.message);
+      console.error(`${Platform.OS} stream error:`, err.name, err.message);
+      Alert.alert('Error', `${Platform.OS === 'web' ? 'HTTPS required' : 'Permission denied'}: ${err.message}`);
       return null;
     }
   };
 
   // Create PeerConnection for call
-  const createPeerConnection = async (roomId: string, type: 'audio' | 'video'): Promise<RTCPeerConnection | null> => {
+  const createPeerConnection = async (roomId: string, type: 'audio' | 'video'): Promise<any | null> => {
+    console.log(`${Platform.OS}: Creating PC for ${type} call in room ${roomId}`);
+    
     if (!RTCPeerConnection) {
-      Alert.alert('Error', 'WebRTC not supported on this platform');
+      console.error(`${Platform.OS}: RTCPeerConnection unavailable`);
+      if (Platform.OS === 'web') {
+        Alert.alert('Web Error', 'Use HTTPS for WebRTC (try ngrok)');
+      } else {
+        Alert.alert('Error', 'WebRTC not supported - rebuild with dev client');
+      }
       return null;
     }
-    if (!socketReady) {
-      Alert.alert('Error', 'Socket not ready for call');
-      return null;
-    }
-
-    const peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
-    setPc(peerConnection);
+    
+    const config = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
+      ]
+    };
+    
+    const pc = new RTCPeerConnection(config);
+    console.log(`${Platform.OS}: PC created with ${config.iceServers.length} ICE servers`);
+    setPc(pc);
 
     const stream = await getLocalStream(type);
-    if (!stream) return null;
-
-    setLocalStream(stream);
-    stream.getTracks().forEach((track: MediaStreamTrack) => peerConnection.addTrack(track, stream));
-
-    // Local preview (web only)
-    if (Platform.OS === 'web' && type === 'video') {
-      const localVideo = document.getElementById('localVideo') as HTMLVideoElement;
-      if (localVideo) localVideo.srcObject = stream;
+    if (!stream || stream.getTracks().length === 0) {
+      console.error(`${Platform.OS}: No valid stream (tracks: ${stream?.getTracks().length || 0})`);
+      pc.close();
+      return null;
     }
 
-    // Remote stream
-    peerConnection.ontrack = (event: RTCTrackEvent) => {
-      console.log('Remote stream received');
+    console.log(`${Platform.OS}: Adding ${stream.getTracks().length} tracks to PC`);
+    stream.getTracks().forEach((track: MediaStreamTrack) => {
+      console.log(`  - ${track.kind} track (enabled: ${track.enabled})`);
+      pc.addTrack(track, stream);
+    });
+    setLocalStream(stream);
+
+    if (socket) {
+      socket.emit('acceptCall', { roomId });
+      console.log(`${Platform.OS}: Joined call room ${roomId}`);
+    }
+
+    // Cross-platform ontrack (works for both)
+    pc.ontrack = (event: RTCTrackEvent) => {
+      console.log(`${Platform.OS} ontrack: Remote stream with ${event.streams[0]?.getTracks().length || 0} tracks`);
+      event.streams[0]?.getTracks().forEach((track: MediaStreamTrack) => {
+        console.log(`  Remote ${track.kind} track received (enabled: ${track.enabled})`);
+      });
       setRemoteStream(event.streams[0]);
-      if (Platform.OS === 'web') {
-        const remoteVideo = document.getElementById('remoteVideo') as HTMLVideoElement;
-        if (remoteVideo) remoteVideo.srcObject = event.streams[0];
-      }
+      setIsCallActive(true);
+      Alert.alert('Connected', `${Platform.OS} call active`);
     };
 
-    // ICE candidates
-    peerConnection.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
+    pc.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
       if (event.candidate) {
+        console.log(`${Platform.OS}: ICE candidate generated (${event.candidate.type})`);
         safeEmit('ice-candidate', { roomId, candidate: event.candidate });
       }
     };
 
-    // Connection state
-    peerConnection.onconnectionstatechange = () => {
-      console.log('PeerConnection state:', peerConnection.connectionState);
-      if (peerConnection.connectionState === 'connected') {
-        setIsCallActive(true);
-        Alert.alert('Connected!', 'Call is now active');
-      } else if (peerConnection.connectionState === 'failed') {
+    // Update createPeerConnection: Only end on 'failed', not 'disconnected' (normal for signaling)
+    pc.onconnectionstatechange = () => {
+      console.log(`${Platform.OS} PC state: ${pc.connectionState}`);
+      if (pc.connectionState === 'connected') {
+        console.log(`${Platform.OS}: ✅ Connected - streams should flow`);
+      } else if (pc.connectionState === 'failed') {
+        console.error(`${Platform.OS}: ❌ PC failed - ending call`);
         endCall();
-        Alert.alert('Failed', 'Connection failed. Retry?');
+        Alert.alert('Failed', `${Platform.OS} connection failed. Check network.`);
+      } else if (pc.connectionState === 'disconnected') {
+        console.log(`${Platform.OS}: PC disconnected (transient? monitoring)`);
+        // Don't end - wait for ICE or manual
       }
     };
 
-    console.log('PeerConnection created for room:', roomId);
-    return peerConnection;
+    // Update oniceconnectionstatechange: Add timeout for 'checking'
+    pc.oniceconnectionstatechange = () => {
+      const iceState = pc.iceConnectionState;
+      console.log(`${Platform.OS} ICE state: ${iceState}`);
+      if (iceState === 'completed' || iceState === 'connected') {
+        console.log(`${Platform.OS}: ICE complete - full media flow`);
+      } else if (iceState === 'failed') {
+        console.error(`${Platform.OS}: ICE failed - ending after 10s`);
+        setTimeout(() => {
+          if (pc.iceConnectionState === 'failed') endCall();
+        }, 10000); // 10s grace
+      } else if (iceState === 'checking') {
+        console.log(`${Platform.OS}: ICE checking (gathering candidates...)`);
+      } else if (iceState === 'disconnected') {
+        console.log(`${Platform.OS}: ICE disconnected (network? not ending)`);
+      }
+    };
+
+    return pc;
   };
 
-  // Initiate call
+  // Initiate call: Notify recipient, then wait for them to accept before creating media.
   const initiateCall = async (type: 'audio' | 'video') => {
+    console.log(`${Platform.OS}: Initiating ${type} call to ${otherUserId}`);
+    
     if (!isPartnerOnline && !testMode) {
-      Alert.alert('Unavailable', `${otherUser.username} is offline`);
+      Alert.alert('Offline', `${otherUser.username} is offline`);
       return;
     }
     if (!socketReady) {
-      Alert.alert('Error', 'Connection required for calls');
+      Alert.alert('Error', 'Not connected to server');
       return;
     }
 
     const roomId = [currentUserId, otherUserId].sort().join('_');
     setCallType(type);
+    setCallState('ringing');
     setShowCallModal(true);
 
-    if (!safeEmit('initiateCall', { to: otherUserId, type, roomId })) return;
-
-    const peerConnection = await createPeerConnection(roomId, type);
-    if (!peerConnection) {
+    // Send notification only
+    if (!safeEmit('initiateCall', { to: otherUserId, type, roomId })) {
+      console.error('Initiate call failed');
       setShowCallModal(false);
+      setCallState('idle');
       return;
     }
 
-    try {
-      const offer = await peerConnection.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: type === 'video',
-      });
-      await peerConnection.setLocalDescription(offer);
-      safeEmit('offer', { roomId, offer: peerConnection.localDescription });
-      console.log(`📞 ${type} call initiated to ${otherUserId}`);
-    } catch (err: any) {
-      console.error('Initiate call error:', err);
-      endCall();
-      Alert.alert('Error', 'Failed to start call');
-    }
+    console.log(`Call initiated - waiting for ${otherUser.username} to accept`);
+
+    // Define handleCallAccepted as async function
+    const handleCallAccepted = async (data: any) => {
+      if (data.roomId !== roomId) return;
+      
+      console.log('Peer accepted - starting media');
+      setCallState('active');
+
+      let pc: any = null;
+      try {
+        // Now create PC and stream
+        pc = await createPeerConnection(roomId, type);
+        if (!pc) {
+          console.error('PC creation failed after acceptance');
+          setCallState('ended');
+          setShowCallModal(false);
+          safeEmit('endCall', { roomId });
+          return;
+        }
+
+        // Create and send offer
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: type === 'video',
+        });
+        await pc.setLocalDescription(offer);
+        safeEmit('offer', { roomId, offer: pc.localDescription });
+        console.log('Offer sent after acceptance');
+      } catch (err: any) {
+        console.error('Media setup failed after acceptance:', err);
+        endCall();
+      }
+    };
+
+    socket?.on('callAccepted', handleCallAccepted);
   };
 
-  // Accept call
+  // Accept call: Notify caller, then create PC and wait for their offer.
   const acceptCall = async () => {
     if (!incomingCall || !socketReady) {
       Alert.alert('Error', 'Cannot accept call');
       return;
     }
-    const roomId = incomingCall.roomId;
-    setCallType(incomingCall.type);
-    setShowCallModal(false);
+    
+    const { roomId, type } = incomingCall;
+    setCallType(type);
+    setCallState('connecting');
+    setShowCallModal(true);
+    setIncomingCall(null);
 
-    if (!safeEmit('acceptCall', { roomId })) return;
+    // Notify caller
+    safeEmit('acceptCall', { roomId });
+    console.log('Emitted acceptCall - preparing media');
 
-    const peerConnection = await createPeerConnection(roomId, incomingCall.type);
-    if (!peerConnection) {
+    // Create PC and stream
+    const pc = await createPeerConnection(roomId, type);
+    if (!pc) {
+      console.error('PC creation failed on accept');
       safeEmit('endCall', { roomId });
+      setCallState('ended');
+      setShowCallModal(false);
       return;
     }
 
-    setIncomingCall(null);
-    console.log('✅ Call accepted');
+    // Use useCallback for handleOffer
+    const handleOffer = useCallback(async (data: any) => {
+      if (data.roomId !== roomId) return;
+      console.log('Received offer, creating answer');
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        safeEmit('answer', { roomId, answer: pc.localDescription });
+        console.log('Answer sent - call connected');
+        setCallState('active');
+      } catch (err: any) {
+        console.error('Answer creation failed:', err);
+        endCall();
+      }
+    }, [roomId]);
+
+    // Set listener
+    socket?.on('offer', handleOffer);
+
+    // Cleanup on unmount or when call ends
+    return () => {
+      socket?.off('offer', handleOffer);
+    };
   };
 
   // Reject call
@@ -681,23 +811,16 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
 
   // End call
   const endCall = () => {
-    if (localStream) {
-      localStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
-      setLocalStream(null);
-    }
-    if (remoteStream) {
-      remoteStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
-      setRemoteStream(null);
-    }
-    if (pc) {
-      pc.close();
-      setPc(null);
-    }
+    console.log('Call ended');
     setIsCallActive(false);
+    setCallState('idle');
     setShowCallModal(false);
     const roomId = [currentUserId, otherUserId].sort().join('_');
-    if (socketReady) safeEmit('endCall', { roomId });
-    console.log('📞 Call ended');
+    if (socketReady) {
+      safeEmit('endCall', { roomId });
+      console.log(`${Platform.OS}: Emitted endCall to room`);
+    }
+    console.log(`${Platform.OS}: Call ended - cleanup complete`);
   };
 
   // Send message
@@ -732,13 +855,14 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
         return updated;
       });
       setMessage('');
-    } catch (err) {
-      console.error('Send message full error:', err);
-      Alert.alert('Error', `Failed to send: ${err.message}`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Send message full error:', errorMessage);
+      Alert.alert('Error', `Failed to send: ${errorMessage}`);
     }
   };
 
-  const renderMessage = ({ item }: { item: Message }): JSX.Element => {
+  const renderMessage = ({ item }: { item: Message }) => {
     let timestampText = '';
     try {
       const ts = item.timestamp ? new Date(item.timestamp) : new Date();
@@ -797,7 +921,7 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
   };
 
   // Render clickable header (with call buttons)
-  const renderHeader = (): JSX.Element => (
+  const renderHeader = () => (
     <TouchableOpacity onPress={openUserProfile} activeOpacity={0.7} style={styles.headerTouchable}>
       {/* Partner avatar/icon on left */}
       {renderHeaderAvatar()}
@@ -807,7 +931,7 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
         <Text style={styles.headerId}>ID: {shortId}</Text>
         {(isPartnerOnline || testMode) && <Text style={styles.headerOnline}>Online</Text>}
       </View>
-      {/* Call buttons on right */}
+      {/* Call buttons on right
       <View style={styles.headerCallButtons}>
         <TouchableOpacity 
           style={styles.testButton} 
@@ -816,30 +940,32 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
         >
           <Text style={styles.testButtonText}>Test</Text>
         </TouchableOpacity>
-        {socketReady && (isPartnerOnline || testMode) && (
+        {RTCPeerConnection ? (
           <>
             <TouchableOpacity 
               style={styles.audioCallButton} 
               onPress={() => initiateCall('audio')}
-              accessibilityLabel="Audio Call"
+              disabled={!socketReady || !isPartnerOnline}
             >
               <Ionicons name="call-outline" size={24} color="#4CAF50" />
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.videoCallButton} 
               onPress={() => initiateCall('video')}
-              accessibilityLabel="Video Call"
+              disabled={!socketReady || !isPartnerOnline}
             >
               <Ionicons name="videocam-outline" size={24} color="#2196F3" />
             </TouchableOpacity>
           </>
+        ) : (
+          <Text style={styles.testButtonText}>Calls unavailable</Text>
         )}
-      </View>
+      </View> */}
     </TouchableOpacity>
   );
 
   // Render header avatar
-  const renderHeaderAvatar = (): JSX.Element => {
+  const renderHeaderAvatar = () => {
     const fullAvatarUrl = otherUser.avatar_url ? `${API_BASE.replace('/api', '')}${otherUser.avatar_url}` : null;
 
     if (fullAvatarUrl) {
@@ -868,83 +994,107 @@ export default function ChatScreen({ route }: { route: { params: RouteParams } }
     );
   };
 
+  // In renderCallModal, the logic remains largely the same, but the state transitions are now more distinct.
+  const remoteVideoRef = useRef(null);
+  const localVideoRef = useRef(null);
+
   // Render call modal
   const renderCallModal = () => (
-    <Modal visible={showCallModal} transparent animationType="fade">
+    <Modal 
+      visible={showCallModal} 
+      transparent 
+      animationType="fade" 
+      presentationStyle={Platform.OS === 'android' ? 'overFullScreen' : 'fullScreen'}
+      onRequestClose={endCall}
+    >
       <View style={styles.callModalOverlay}>
-        <View style={styles.callModalContent}>
-          {incomingCall ? (
-            // Incoming call
-            <>
-              <Ionicons name={callType === 'video' ? 'videocam' : 'call'} size={60} color="#007AFF" />
-              <Text style={styles.callModalTitle}>Incoming {callType} Call</Text>
-              <Text style={styles.callModalSubtitle}>From: {incomingCall.from}</Text>
-              <View style={styles.callModalButtons}>
-                <TouchableOpacity style={styles.acceptButton} onPress={acceptCall}>
-                  <Ionicons name="checkmark-circle" size={24} color="white" />
-                  <Text style={styles.callButtonText}>Accept</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.rejectButton} onPress={rejectCall}>
-                  <Ionicons name="close-circle" size={24} color="white" />
-                  <Text style={styles.callButtonText}>Reject</Text>
-                </TouchableOpacity>
+        {callState === 'ringing' ? (
+          // Outgoing ringing screen (caller)
+          <View style={styles.callModalContent}>
+            <Ionicons name={callType === 'video' ? 'videocam' : 'call'} size={60} color="#007AFF" />
+            <Text style={styles.callModalTitle}>Calling {otherUser.username}</Text>
+            <Text style={styles.callModalSubtitle}>Ringing...</Text>
+            <TouchableOpacity style={styles.endButton} onPress={endCall}>
+              <Ionicons name="close-circle" size={24} color="white" />
+              <Text style={styles.callButtonText}>End</Text>
+            </TouchableOpacity>
+          </View>
+        ) : callState === 'connecting' ? (
+          // Connecting: After accept, before media flows
+          <View style={styles.callModalContent}>
+            <Ionicons name={callType === 'video' ? 'videocam' : 'call'} size={60} color="#007AFF" />
+            <Text style={styles.callModalTitle}>Connecting...</Text>
+            <Text style={styles.callModalSubtitle}>Preparing video call</Text>
+            <TouchableOpacity style={styles.endButton} onPress={endCall}>
+              <Ionicons name="close-circle" size={24} color="white" />
+              <Text style={styles.callButtonText}>End</Text>
+            </TouchableOpacity>
+          </View>
+        ) : incomingCall ? (
+          // Incoming accept/reject
+          <View style={styles.callModalContent}>
+            <Ionicons name={callType === 'video' ? 'videocam' : 'call'} size={60} color="#007AFF" />
+            <Text style={styles.callModalTitle}>Incoming {callType} Call</Text>
+            <Text style={styles.callModalSubtitle}>{otherUser.username} is calling</Text>
+            <View style={styles.callModalButtons}>
+              <TouchableOpacity style={styles.acceptButton} onPress={acceptCall}>
+                <Ionicons name="checkmark-circle" size={24} color="white" />
+                <Text style={styles.callButtonText}>Accept</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.rejectButton} onPress={rejectCall}>
+                <Ionicons name="close-circle" size={24} color="white" />
+                <Text style={styles.callButtonText}>Reject</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          // Active call (after acceptance)
+          <View style={styles.videoContainer}>
+            {/* Remote Video - Mobile RTCView, Web fallback */}
+            {Platform.OS !== 'web' && remoteStream && RTCView ? (
+              <RTCView streamURL={remoteStream.toURL()} style={styles.remoteVideo} objectFit="cover" />
+            ) : (
+              <View style={styles.remoteVideo}>
+                <Text style={styles.noStreamText}>
+                  {Platform.OS === 'web' ? 'Web: HTTPS + camera/mic needed' : 'Video connecting...'}
+                </Text>
               </View>
-            </>
-          ) : (
-            // Outgoing call
-            <>
-              <Ionicons name={callType === 'video' ? 'videocam' : 'call'} size={60} color="#007AFF" />
-              <Text style={styles.callModalTitle}>Calling {otherUser.username}</Text>
-              <Text style={styles.callModalSubtitle}>{isCallActive ? 'Connected!' : 'Ringing...'}</Text>
-              {isCallActive && (
-                <TouchableOpacity style={styles.endButton} onPress={endCall}>
-                  <Ionicons name="call-end" size={24} color="white" />
-                  <Text style={styles.callButtonText}>End Call</Text>
+            )}
+            {/* Local Video - Mobile only */}
+            {Platform.OS !== 'web' && localStream && callType === 'video' && RTCView ? (
+              <RTCView streamURL={localStream.toURL()} style={styles.localVideo} objectFit="cover" mirror={true} />
+            ) : null}
+            {/* Controls - All platforms */}
+            <View style={styles.activeControls}>
+              <TouchableOpacity style={styles.controlButton} onPress={() => {
+                if (localStream) {
+                  const audioTrack = localStream.getAudioTracks()[0];
+                  if (audioTrack) {
+                    audioTrack.enabled = !audioTrack.enabled;
+                    console.log(`${Platform.OS}: Audio ${audioTrack.enabled ? 'unmuted' : 'muted'}`);
+                  }
+                }
+              }}>
+                <Ionicons name="mic" size={30} color="#fff" />
+              </TouchableOpacity>
+              {callType === 'video' && (
+                <TouchableOpacity style={styles.controlButton} onPress={() => {
+                  if (localStream) {
+                    const videoTrack = localStream.getVideoTracks()[0];
+                    if (videoTrack) {
+                      videoTrack.enabled = !videoTrack.enabled;
+                      console.log(`${Platform.OS}: Video ${videoTrack.enabled ? 'on' : 'off'}`);
+                    }
+                  }
+                }}>
+                  <Ionicons name="videocam" size={30} color="#fff" />
                 </TouchableOpacity>
               )}
-            </>
-          )}
-        </View>
-
-        {/* Active call video overlay */}
-        {isCallActive && (
-          <View style={styles.videoContainer}>
-            {/* Remote video (full screen) */}
-            {Platform.OS === 'web' && remoteStream && (
-              <video
-                id="remoteVideo"
-                srcObject={remoteStream}
-                autoPlay
-                playsInline
-                style={styles.remoteVideo}
-              />
-            )}
-            {Platform.OS !== 'web' && remoteStream && RTCView && (
-              <RTCView
-                streamURL={remoteStream.toURL()}
-                style={styles.remoteVideo}
-              />
-            )}
-
-            {/* Local video (small overlay) */}
-            {localStream && callType === 'video' && (
-              Platform.OS === 'web' ? (
-                <video
-                  id="localVideo"
-                  srcObject={localStream}
-                  autoPlay
-                  muted
-                  playsInline
-                  style={styles.localVideo}
-                />
-              ) : (
-                <RTCView
-                  streamURL={localStream.toURL()}
-                  style={styles.localVideo}
-                  mirror={true}
-                />
-              )
-            )}
+              <TouchableOpacity style={styles.endCallButton} onPress={endCall}>
+                <Ionicons name="close-circle" size={30} color="#ff4444" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.partnerNameOverlay}>{otherUser.username} ({Platform.OS})</Text>
           </View>
         )}
       </View>
@@ -1293,26 +1443,73 @@ const styles = StyleSheet.create({
   videoContainer: {
     position: 'absolute',
     top: 0,
+    bottom: 0,
     left: 0,
     right: 0,
-    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   remoteVideo: {
+    width: '100%',
+    height: '100%',
     position: 'absolute',
     top: 0,
     left: 0,
-    width: '100%',
-    height: 300,  // Full height
-    backgroundColor: '#000',
+    borderRadius: 20,
   },
   localVideo: {
-    position: 'absolute',
-    top: 20,
-    right: 20,
     width: 120,
-    height: 160,
+    height: 120,
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
     borderRadius: 10,
-    backgroundColor: '#000',
-    zIndex: 10,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  activeControls: {
+    position: 'absolute',
+    bottom: 50,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 20,
+    backgroundColor: 'transparent',
+  },
+  controlButton: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 50,
+    padding: 20,
+    alignItems: 'center',
+  },
+  endCallButton: {
+    backgroundColor: '#ff4444',
+    borderRadius: 50,
+    padding: 20,
+    alignItems: 'center',
+  },
+  partnerNameOverlay: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    zIndex: 2,
+    textShadowColor: 'rgba(0,0,0,0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
+  },
+  noStreamText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

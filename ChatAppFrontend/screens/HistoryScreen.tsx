@@ -11,16 +11,7 @@ export default function HistoryScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Call History</Text>
-      <FlatList
-        data={callHistory}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <View style={styles.item}>
-            <Text>{item.partner} - {item.type} call</Text>
-            <Text>{item.date} ({item.duration})</Text>
-          </View>
-        )}
-      />
+      <Text>(coming soon!)</Text>
     </View>
   );
 }

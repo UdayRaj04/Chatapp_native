@@ -4,7 +4,7 @@ import { View, Text, StyleSheet } from 'react-native';
 export default function AnalyticsScreen() {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Calling</Text>
+      <Text style={styles.title}>Calling bro</Text>
       <Text>(coming soon!)</Text>
     </View>
   );
