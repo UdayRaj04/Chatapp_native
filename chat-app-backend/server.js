@@ -40,6 +40,11 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/messages', messageRoutes);
 
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true });
+});
+
+
 // Socket.io Authentication Middleware (existing - verifies token and sets socket.userId)
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;

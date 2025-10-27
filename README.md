@@ -40,7 +40,7 @@ A modern, secure chat application built with **React Native** (frontend) and **N
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/chatapp.git
+git clone https://github.com/udayraj04/chatapp.git
 cd chatapp
 ```
 
