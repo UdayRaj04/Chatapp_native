@@ -42,6 +42,7 @@ app.use('/api/messages', messageRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ ok: true });
+  console.log('Health check OK');
 });
 
 
