@@ -3,7 +3,7 @@
 A modern, secure chat application built with **React Native** (frontend) and **Node.js/Express** (backend). Features real-time messaging, end-to-end encryption, user profiles with avatars, and WebRTC-based audio/video calling.
 
 ## Download & Use App (using this link) 
-https://drive.google.com/file/d/1Hns5G44GSFlrL8H_9EIcBX0Yo_xa6PYn/view?usp=drivesdk
+https://drive.google.com/file/d/1Hns5G44GSFlrL8H_9EIcBX0Yo_xa6PYn
 ---
 
 ## Features
